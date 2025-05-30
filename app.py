@@ -13,16 +13,18 @@ class AppConciliacionBancos(DBConnection):
         CORS(self.app)
         self.app.register_blueprint(concilia_bp, url_prefix='/api')
 
-    def run(self, debug=True, host="0.0.0.0", port=5000):
+    def run(self, debug=True, host="0.0.0.0", port=6050):
         self.app.run(debug=True, host=host, port=port)
 
-# **🚀 Ejecutar el servidor Flask**
+
+
+
 
 if __name__ == "__main__":
     concilia = AppConciliacionBancos()
     try:
-        with concilia.app.app_context():
-            concilia.run(debug=True, port=5050)
+        #with concilia.app.app_context():
+        concilia.run(debug=True, port=6050)
 
     except Exception as e:
         logging.error(f"Error al iniciar el servicio: {e}")
@@ -30,15 +32,6 @@ if __name__ == "__main__":
 
 
 
-"""
-if __name__ == "__main__":
-    concilia = AppConciliacionBancos()
 
-    try:
-        with concilia.app.test_request_context():  # 🔹
-            res = conciliar()
 
-    except Exception as e:
-        logging.error(f"Error al iniciar el servicio: {e}")
 
-"""

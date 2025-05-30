@@ -1,0 +1,83 @@
+Tareas para 28/05/2025
+1) Agregar columnas a resu_concilia del dataframe resultado_concilia4 =
+ plan_cuentas, m_pase, m_asiento y nro_comp
+
+  DATAFRAME  = resultado_concilia4
+ m_ingreso        42 non-null     object
+ 1   m_asiento        42 non-null     int64
+ 2   m_pase           42 non-null     int64
+ 3   codigo_libro     42 non-null     int64
+ 4   m_minuta         42 non-null     int64
+ 5   plan_cuentas     42 non-null     int64
+ 6   importe          42 non-null     float64
+ 7   detalle          42 non-null     object
+ 8   concepto_codigo  42 non-null     int64
+ 9   padron_codigo    42 non-null     int64
+ 10  comprobante_x    42 non-null     object
+ 11  nro_comp         42 non-null     int64
+ 12  c4               42 non-null     object
+ 13  Unnamed: 0       0 non-null      float64
+ 14  Fecha            42 non-null     object
+ 15  concepto         42 non-null     object
+ 16  comprobante_y    42 non-null     object
+ 17  debito           42 non-null     float64
+ 18  credito          42 non-null     float64
+ 19  Saldo            42 non-null     float64
+ 20  codigo           42 non-null     object
+
+
+
+2) quitar del resultado de conciliacion la cuenta contable (no va)
+3) Hacer pantalla de totales de bancos
+dataframe = totales_banco
+dataframe = totales_banco
+ #   Column       Non-Null Count  Dtype
+ CONCEPTO - IMPORTE
+<class 'pandas.core.series.Series'>
+Index: 118 entries, Acreditacion Valores Camara/C.Interno to Transferencia por Pago de Haberes Se acreditara en: 17 Cuentas
+Series name: importe
+Non-Null Count  Dtype
+--------------  -----
+118 non-null    float64
+dtypes: float64(1)
+
+
+
+
+
+4) hacer a modo informativo diferencia de conciliacion con bancos (dataframe= importes_unicos_bancos)
+
+dataframe = importes_unicos_bancos
+ #   Column       Non-Null Count  Dtype
+---  ------       --------------  -----
+ 0   Unnamed: 0   0 non-null      float64
+ 1   Fecha        441 non-null    object
+ 2   concepto     441 non-null    object
+ 3   comprobante  441 non-null    object
+ 4   debito       441 non-null    float64
+ 5   credito      441 non-null    float64
+ 6   Saldo        441 non-null    float64
+ 7   codigo       441 non-null    object
+ 8   importe      614 non-null    float64
+ 9   c4           614 non-null    object
+
+
+
+5) hacer a modo info diferencia de conciliacion con empresa (dataframe importes_unicos_empresa)
+
+data frame = importes_unicos_empresa
+ #   Column           Non-Null Count  Dtype
+---  ------           --------------  -----
+ 0   m_ingreso        172 non-null    object
+ 1   m_asiento        172 non-null    int64
+ 2   m_pase           172 non-null    int64
+ 3   codigo_libro     172 non-null    int64
+ 4   m_minuta         172 non-null    int64
+ 5   plan_cuentas     172 non-null    int64
+ 6   importe          172 non-null    float64
+ 7   detalle          172 non-null    object
+ 8   concepto_codigo  172 non-null    int64
+ 9   padron_codigo    172 non-null    int64
+ 10  comprobante      172 non-null    object
+ 11  nro_comp         172 non-null    int64
+ 12  c4               172 non-null    object

@@ -4,16 +4,11 @@ class ConectorManagerDB:
         self.connection = None
 
     def get_connection(self):
-        """🔹 Devuelve la conexión adecuada según el valor de plataforma."""
         if self.plataforma == 1:
+            print("Conectando a Mysql !!!")
             from conn.ConciliaDB import DBConnection
-            self.connection = DBConnection()  # Conexión a MySQL
-            """
-                    elif self.plataforma == 2:
-                from conn.FacturacionConnectionSybase import DBConnectionSybase
-                self.connection = DBConnectionSybase()
-            """
+            return DBConnection()  # Conexión a MySQL
+
         else:
             raise ValueError("Plataforma no soportada")
-        return self.connection
 
