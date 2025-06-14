@@ -46,6 +46,7 @@ def subir_y_conciliar():
         id_empresa = request.form.get('empresa')
         id_usuario = request.form.get('usuario')
         id_tipo_conciliacion = request.form.get('tipoConciliacion', 1)
+        cuenta_concilia = request.form.get('cuentaConcilia', 0)
         # Configuración del servidor SFTP
         sftp_host = os.getenv("SFTP_HOST")
         sftp_port = int(os.getenv("SFTP_PORT"))
@@ -74,16 +75,9 @@ def subir_y_conciliar():
         logging.info("Archivos subidos al servidor SFTP con éxito.")
 
         # Ejecutar la conciliación en el servidor
-        conciliador = Conciliador(bancos_stream, mayor_stream, str(sftp_destino), id_empresa, id_usuario, id_tipo_conciliacion)
+        conciliador = Conciliador(bancos_stream, mayor_stream, str(sftp_destino), id_empresa, id_usuario, id_tipo_conciliacion, cuenta_concilia)
         resp = conciliador.ejecutar()
-        logging.info(f"Conciliación completada con éxito: {resp}")
-
-        return jsonify({
-            "control": "OK",
-            "codigo": 200,
-            "mensaje": "Felicitaciones la conciliación fue realizadas con éxito, dirijase a el informe de conciliación para ver los resultados.",
-            "estado": "1"
-        }), 200
+        return resp
 
 
     except Exception as e:
