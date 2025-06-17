@@ -1,8 +1,5 @@
-import sys
-from app import AppFacturacionElectronica
+from app import AppConciliacionBancos
 
-
-if __name__ == "__main__":
-    sys.argv.append("--timeout")
-    sys.argv.append('300')
-    AppFacturacionElectronica.run(debug=True, host='0.0.0.0', port=6001)
+# Creamos la instancia de la app Flask
+concilia_app = AppConciliacionBancos()
+app = concilia_app.app  # Esto es lo que Gunicorn necesita
