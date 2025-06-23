@@ -53,6 +53,11 @@ def subir_y_conciliar():
         sftp_user = os.getenv("SFTP_USER")
         sftp_password = os.getenv("SFTP_PASSWORD")
         sftp_destino = str(os.getenv("SFTP_DESTINO"))
+        print("HOST: "+str(sftp_host))
+        print("USER: " + str(sftp_user))
+        print("PORT: " + str(sftp_port))
+        print("PASSWORD: " + str(sftp_password))
+        print("DESTINO: " + str(sftp_destino))
         if not sftp_destino.endswith('/'):
             sftp_destino += '/'
 

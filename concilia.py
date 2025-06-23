@@ -14,6 +14,8 @@ from conectorManagerDB import ConectorManagerDB
 load_dotenv()
 
 class Conciliador:
+    # 192.168.254.15 = /home/administrador/conciliaciones/concilia-procesa/archivos/conciliaciones/upload
+    # 192.168.254.47 = /var/www/clients/client4/web28/web/conciliaciones-bancarias/upload/
     def __init__(self, bancos_stream: BytesIO, mayor_stream: BytesIO, salida = "/var/www/clients/client4/web28/web/conciliaciones-bancarias/upload/", id_empresa=0, id_usuario=0, id_tipo_conicliacion=1, cuenta_concilia=0):
 
         self.bancos_stream = bancos_stream
@@ -33,29 +35,50 @@ class Conciliador:
         self.df_bancos = pd.read_excel(self.bancos_stream, dtype={'comprobante': str})
         self.df_mayor = pd.read_excel(self.mayor_stream, dtype={'comprobante': str})
 
+
+
     def procesar_datos(self):
-        """Procesa los datos para realizar la conciliación."""
+        """Procesa los datos para realizar la conciliación con tolerancia en importes."""
+        # Normalizar comprobante
         self.df_bancos['c4'] = self.df_bancos['comprobante'].astype(str).str.zfill(4).str[-4:]
         self.df_mayor['c4'] = self.df_mayor['comprobante'].astype(str).str.zfill(4).str[-4:]
 
-        self.df_bancos = self.df_bancos.sort_values(by=['c4', 'importe'])
-        self.df_mayor = self.df_mayor.sort_values(by=['c4', 'importe'])
+        # Redondear importes a 2 decimales para tolerancia
+        self.df_bancos['importe_r'] = self.df_bancos['importe'].round(2)
+        self.df_mayor['importe_r'] = self.df_mayor['importe'].round(2)
 
+        # Merge flexible por c4 e importe redondeado
         self.resultado_concilia = pd.merge(
-            self.df_mayor, self.df_bancos, on=['c4', 'importe'], how='inner', indicator=True
+            self.df_mayor, self.df_bancos, on=['c4', 'importe_r'], how='inner', indicator=True,
+            suffixes=('_mayor', '_banco')
         )
 
-        self.unicos_empresa = self.df_mayor[~((self.df_mayor['importe'].isin(self.df_bancos['importe'])) &
-                                              (self.df_mayor['c4'].isin(self.df_bancos['c4'])))]
-
-        self.unicos_banco = self.df_bancos[~((self.df_bancos['importe'].isin(self.df_mayor['importe'])) &
-                                             (self.df_bancos['c4'].isin(self.df_mayor['c4'])))].sort_values(
-            by='concepto')
 
 
+        # Después del merge, agrega la columna 'importe' original del mayor o banco
+        if 'importe_mayor' in self.resultado_concilia.columns:
+            self.resultado_concilia['importe'] = self.resultado_concilia['importe_mayor']
+        elif 'importe_banco' in self.resultado_concilia.columns:
+            self.resultado_concilia['importe'] = self.resultado_concilia['importe_banco']
 
+        # Registros únicos en mayor (no conciliados)
+        self.unicos_empresa = self.df_mayor[
+            ~self.df_mayor.set_index(['c4', 'importe_r']).index.isin(
+                self.resultado_concilia.set_index(['c4', 'importe_r']).index)
+        ].copy()
+        # Asegura que 'importe' esté presente
+        if 'importe' not in self.unicos_empresa.columns and 'importe_r' in self.unicos_empresa.columns:
+            self.unicos_empresa['importe'] = self.unicos_empresa['importe_r']
 
+        # Registros únicos en banco (no conciliados)
+        self.unicos_banco = self.df_bancos[
+            ~self.df_bancos.set_index(['c4', 'importe_r']).index.isin(
+                self.resultado_concilia.set_index(['c4', 'importe_r']).index)
+        ].copy().sort_values(by='concepto')
+        if 'importe' not in self.unicos_banco.columns and 'importe_r' in self.unicos_banco.columns:
+            self.unicos_banco['importe'] = self.unicos_banco['importe_r']
 
+        # Totales por concepto
         self.totales_banco = self.df_bancos.groupby('concepto')['importe'].sum().sort_index()
 
     def guardarUnicosEntidad(self, unicos_entidad, cuenta_concilia):

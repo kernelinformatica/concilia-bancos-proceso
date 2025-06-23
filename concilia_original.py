@@ -48,8 +48,8 @@ finally:
 
 
 # Ruta al archivo XLS
-ruta3_xls = "C:/temp/bancos/base/bancos.xls"
-ruta4_xls = "C:/temp/bancos/base/mayor.xls"
+ruta3_xls = "H:/Dario/Proyectos/Python/kernel/ws-rest/concilia_bancos_api_calc/data-test/bancos.xls"
+ruta4_xls = "H:/Dario/Proyectos/Python/kernel/ws-rest/concilia_bancos_api_calc/data-test/mayor.xls"
 #
 # Carga el archivo CSV en un DataFrame de Pandas
 df3 = pd.read_excel(ruta3_xls, dtype={'comprobante': str})
