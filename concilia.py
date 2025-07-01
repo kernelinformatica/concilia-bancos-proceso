@@ -7,9 +7,11 @@ import pandas as pd
 import logging
 from io import BytesIO
 
-from dateutil.parser import parser
+from dateutil.parser import parser, parse
 from dotenv import load_dotenv
 from conectorManagerDB import ConectorManagerDB
+
+
 
 load_dotenv()
 
@@ -30,11 +32,35 @@ class Conciliador:
 
         self.plataforma = int(os.getenv("PLATAFORMA", 1))
 
+
+
+
+
+
     def cargar_datos(self):
-        """Carga los datos desde BytesIO en DataFrames."""
         self.df_bancos = pd.read_excel(self.bancos_stream, dtype={'comprobante': str})
         self.df_mayor = pd.read_excel(self.mayor_stream, dtype={'comprobante': str})
 
+
+
+    def cargar_datos_2(self):
+        """Carga los datos desde BytesIO en DataFrames y normaliza nombres de columnas clave."""
+
+        # Mapa de nombres alternativos
+        columnas_equivalentes = {
+            "importe": ["importe", "m_importe"],
+            "comprobante": ["comprobante", "nro_comp_asoc", "nro_comp", "nro_comp_preimp"],
+            "detalle": ["detalle", "m_detalle"],
+
+
+        }
+
+        # Cargar bancos sin modificar columnas
+        self.df_bancos = pd.read_excel(self.bancos_stream, dtype={'comprobante': str})
+
+        # Cargar mayor y aplicar renombrado de columnas
+        self.df_mayor = pd.read_excel(self.mayor_stream, dtype={'comprobante': str})
+        self.df_mayor = self.unificar_columnas(self.df_mayor, columnas_equivalentes)
 
 
     def procesar_datos(self):
@@ -80,6 +106,27 @@ class Conciliador:
 
         # Totales por concepto
         self.totales_banco = self.df_bancos.groupby('concepto')['importe'].sum().sort_index()
+
+
+
+
+
+
+
+
+
+
+    def unificar_columnas(self, df, alias_dict):
+        """Renombra las columnas de un DataFrame según un mapa de nombres posibles."""
+        renombrar = {}
+        for nombre_final, posibles_alias in alias_dict.items():
+            for alias in posibles_alias:
+                if alias in df.columns:
+                    renombrar[alias] = nombre_final
+                    break  # Solo toma el primero que encuentre
+        return df.rename(columns=renombrar)
+
+
 
     def guardarUnicosEntidad(self, unicos_entidad, cuenta_concilia):
         print("------------------------ guardarUnicosEntidad()  ------------------------")
@@ -419,7 +466,7 @@ class Conciliador:
         conn = ConectorManagerDB(1)
         db_connection = conn.get_connection().conn
         cursor = db_connection.cursor()
-        print("---> guardaResultadosConciliacion() "+str(cuenta_concilia))
+
         try:
 
             try:
@@ -452,7 +499,9 @@ class Conciliador:
                         """
                 cursor.execute(sql_insert_cab, (self.id_empresa, self.id_tipo_concilia, numerador, numerador, numerador, "N", self.id_usuario, 1))
                 db_connection.commit()
-                # Crear lista de tuplas con los valores a insertar
+
+
+
                 valores = [
                     (
                         self.id_tipo_concilia,
@@ -460,7 +509,7 @@ class Conciliador:
                         row['m_asiento'],
                         numerador,
                         row['m_pase'],
-                        row['m_ingreso'],
+                        self.normalizarFechas(row['m_ingreso']),
                         row['plan_cuentas'],
                         row['concepto'],
                         row['detalle'],
@@ -475,6 +524,7 @@ class Conciliador:
                         1  # estado
                     )
                     for index, row in resultado_concilia.iterrows()
+
                 ]
 
                 # Nueva estructura de inserción sin placeholders dinámicos
@@ -486,6 +536,7 @@ class Conciliador:
                       """
 
                 # Ejecutar la inserción de múltiples filas
+
 
 
                 cursor.executemany(sql, valores)
@@ -516,6 +567,20 @@ class Conciliador:
         finally:
             cursor.close()
             db_connection.close()
+
+    def normalizarFechas(self, fecha):
+
+        if not fecha or str(fecha).strip().lower() in ["", "none", "nan", "null"]:
+            print("⚠️ Fecha vacía o inválida, se usará 1900-01-01")
+            return "1900-01-01"
+
+        try:
+            fech = parse(str(fecha), dayfirst=True)
+
+            return fech.strftime('%Y-%m-%d')
+        except Exception as e:
+            print(f"⚠️ Error al parsear: {fecha} → {e}")
+            return "1900-01-01"
 
     def guardar_resultados(self):
         manager = ConectorManagerDB(self.plataforma)
@@ -582,7 +647,7 @@ class Conciliador:
     def ejecutar(self):
         """Ejecuta todo el flujo de conciliación y devuelve el resultado."""
         try:
-            self.cargar_datos()
+            self.cargar_datos_2()
             self.procesar_datos()
             return self.guardaResultadosConciliacion(self.resultado_concilia, self.cuenta_concilia)
         except Exception as e:
