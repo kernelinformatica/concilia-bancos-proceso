@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime
-
+import re
 import numpy as np
 import pandas as pd
 import logging
@@ -39,45 +39,152 @@ class Conciliador:
 
 
 
-
-
-
     def cargar_datos(self):
+        # Detectar el motor según el formato del archivo
+        bancos_engine = self.detectar_motor(self.bancos_stream)
+        mayor_engine = self.detectar_motor(self.mayor_stream)
+        self.df_bancos = pd.read_excel(self.bancos_stream, dtype={'comprobante': str}, engine=bancos_engine)
+        self.df_mayor = pd.read_excel(self.mayor_stream, dtype={'comprobante': str}, engine=mayor_engine)
+
+
+
+    def cargar_datos_2(self):
         """Carga los datos desde BytesIO en DataFrames y normaliza nombres de columnas clave."""
 
         # Mapa de nombres alternativos
         self.columnas_equivalentes = {
-            "importe": ["importe", "m_importe", "saldo"],
+            "importe": ["importe", "m_importe","saldo"],
             "comprobante": ["comprobante", "nro_comp_asoc", "nro_comp", "nro_comp_preimp", "nro", "numero"],
-            "detalle": ["detalle", "m_detalle", "descripcion", "m_descripcion", "m_glosa"],
+            "detalle": ["detalle", "m_detalle", "descripcion", "m_descripcion",  "m_glosa"],
             "cuit": ["cuit", "cuit_proveedor", "cuit_cliente", "cuit_beneficiario"],
-            "concepto": ["concepto", "m_concepto", "concepto_codigo", "concepto_descripcion", "concepto_banco",
-                         "concepto_bancos", "bancos_concepto", "conce", "concept"],
+            "concepto": ["concepto", "m_concepto", "concepto_codigo", "concepto_descripcion", "concepto_banco", "concepto_bancos", "bancos_concepto",  "conce", "concept"],
         }
-
-
-
-        """self.columnas_equivalentes = {
-            "importe": ["importe", "m_importe", "saldo"],
-            "comprobante": ["comprobante",  "nro_comp",  "nro", "numero"],
-            "detalle": ["detalle", "m_detalle", "descripcion", "m_descripcion", "m_glosa", "detalles", "descripcion"],
-            "cuit": ["cuit", "cuit_proveedor", "cuit_cliente", "cuit_beneficiario"],
-            "concepto": ["concepto", "m_concepto", "concepto_codigo", "concepto_descripcion", "concepto_banco", "concepto_bancos", "bancos_concepto", "conce", "concept"],
-            "fecha": ["fecha", "m_ingreso", "fecha_operacion"]
-        }"""
-
+        # Detectar el motor según el formato del archivo
+        bancos_engine = self.detectar_motor(self.bancos_stream)
+        mayor_engine = self.detectar_motor(self.mayor_stream)
 
         # Cargar bancos y aplicar renombrado de columnas
-        self.df_bancos = pd.read_excel(self.bancos_stream, dtype={'comprobante': str})
+        self.df_bancos = pd.read_excel(self.bancos_stream, dtype={'comprobante': str}, engine=bancos_engine)
         self.df_bancos = self.unificar_columnas(self.df_bancos, self.columnas_equivalentes)
 
         # Cargar mayor y aplicar renombrado de columnas
-        self.df_mayor = pd.read_excel(self.mayor_stream, dtype={'comprobante': str})
+        self.df_mayor = pd.read_excel(self.mayor_stream, dtype={'comprobante': str}, engine=mayor_engine)
         self.df_mayor = self.unificar_columnas(self.df_mayor, self.columnas_equivalentes)
-        print(self.df_mayor)
+
+    def filtrar_por_cuit_y_importe(self, df_bancos, df_mayor, columnas_equivalentes):
+        """
+        Filtra registros de conciliación basados en CUIT extraído de la descripción y el importe,
+        considerando columnas equivalentes.
+        """
+
+        def obtener_columna(df, claves):
+            """Obtiene la primera columna válida según las claves equivalentes."""
+            for clave in claves:
+                if clave in df.columns:
+                    return clave
+            return None
+
+        # Obtener las columnas equivalentes para 'detalle' y 'importe'
+        col_detalle_bancos = obtener_columna(df_bancos, columnas_equivalentes.get('concepto', []))
+        col_detalle_mayor = obtener_columna(df_mayor, columnas_equivalentes.get('detalle', []))
+
+        col_importe_bancos = obtener_columna(df_bancos, columnas_equivalentes.get('importe', []))
+        col_importe_mayor = obtener_columna(df_mayor, columnas_equivalentes.get('importe', []))
+
+        if not col_detalle_bancos or not col_detalle_mayor:
+            raise ValueError("No se encontró una columna válida para 'detalle' en los DataFrames.")
+        if not col_importe_bancos or not col_importe_mayor:
+            raise ValueError("No se encontró una columna válida para 'importe' en los DataFrames.")
+
+        # Extraer CUIT de las columnas de detalle
+        df_bancos['cuit'] = df_bancos[col_detalle_bancos].apply(
+            lambda x: re.search(r'\b\d{2}-\d{8}-\d\b', str(x)).group(0) if re.search(r'\b\d{2}-\d{8}-\d\b',
+                                                                                     str(x)) else None
+        )
+        df_mayor['cuit'] = df_mayor[col_detalle_mayor].apply(
+            lambda x: re.search(r'\b\d{2}-\d{8}-\d\b', str(x)).group(0) if re.search(r'\b\d{2}-\d{8}-\d\b',
+                                                                                     str(x)) else None
+        )
+
+        # Filtrar registros donde el CUIT no sea nulo
+        df_bancos_filtrado = df_bancos.dropna(subset=['cuit'])
+        df_mayor_filtrado = df_mayor.dropna(subset=['cuit'])
+
+        # Realizar el filtrado por CUIT e importe
+        resultado_cuit_importe = pd.merge(
+            df_bancos_filtrado, df_mayor_filtrado,
+            left_on=['cuit', col_importe_bancos], right_on=['cuit', col_importe_mayor],
+            how='inner', indicator=True
+        )
+        logging.info(resultado_cuit_importe)
+        # Retornar los resultados del filtrado
+        return resultado_cuit_importe
 
 
+    """
+    def _procesar_datos_origin_(self):
+        print("Procesa los datos para realizar la conciliación con tolerancia en importes.")
+        # Normalizar comprobante
+        self.df_bancos['c4'] = self.df_bancos['comprobante'].astype(str).str.zfill(4).str[-4:]
+        self.df_mayor['c4'] = self.df_mayor['comprobante'].astype(str).str.zfill(4).str[-4:]
 
+        # Redondear importes a 2 decimales para tolerancia
+        self.df_bancos['importe_r'] = self.df_bancos['importe'].round(2)
+        self.df_mayor['importe_r'] = self.df_mayor['importe'].round(2)
+
+        # Merge flexible por c4 e importe redondeado
+        self.resultado_concilia = pd.merge(
+            self.df_mayor, self.df_bancos, on=['c4', 'importe_r'], how='inner', indicator=True,
+            suffixes=('_mayor', '_banco')
+        )
+        self.resultado_concilia['concepto'] = self.resultado_concilia['concepto_banco']
+        if 'concepto' not in self.resultado_concilia.columns:
+            posibles = [col for col in self.resultado_concilia.columns if 'concepto' in col]
+            if posibles:
+                self.resultado_concilia['concepto'] = self.resultado_concilia[posibles[0]]
+
+        # Asegurar que 'detalle' esté presente
+
+        self.resultado_concilia['detalle'] = self.resultado_concilia['Concepto']
+        logging.info(self.resultado_concilia['detalle'])
+        # Asignar 'concepto' desde concepto_codigo del mayor
+        if 'concepto_codigo' in self.resultado_concilia.columns:
+            self.resultado_concilia['concepto'] = self.resultado_concilia['concepto_codigo']
+        elif 'concepto_mayor' in self.resultado_concilia.columns:
+            self.resultado_concilia['concepto'] = self.resultado_concilia['concepto_mayor']
+        else:
+            posibles_codigo = [col for col in self.resultado_concilia.columns if 'concepto' in col and 'codigo' in col]
+            if posibles_codigo:
+                self.resultado_concilia['concepto'] = self.resultado_concilia[posibles_codigo[0]]
+
+        # Después del merge, agrega la columna 'importe' original del mayor o banco
+        if 'importe_mayor' in self.resultado_concilia.columns:
+            self.resultado_concilia['importe'] = self.resultado_concilia['importe_mayor']
+        elif 'importe_banco' in self.resultado_concilia.columns:
+            self.resultado_concilia['importe'] = self.resultado_concilia['importe_banco']
+
+        # Registros únicos en mayor (no conciliados)
+        self.unicos_empresa = self.df_mayor[
+            ~self.df_mayor.set_index(['c4', 'importe_r']).index.isin(
+                self.resultado_concilia.set_index(['c4', 'importe_r']).index)
+        ].copy()
+        # Asegura que 'importe' esté presente
+        if 'importe' not in self.unicos_empresa.columns and 'importe_r' in self.unicos_empresa.columns:
+            self.unicos_empresa['importe'] = self.unicos_empresa['importe_r']
+
+        # Registros únicos en banco (no conciliados)
+        self.unicos_banco = self.df_bancos[
+            ~self.df_bancos.set_index(['c4', 'importe_r']).index.isin(
+                self.resultado_concilia.set_index(['c4', 'importe_r']).index)
+        ].copy().sort_values(by='concepto')
+
+        if 'importe' not in self.unicos_banco.columns and 'importe_r' in self.unicos_banco.columns:
+            self.unicos_banco['importe'] = self.unicos_banco['importe_r']
+
+        # Totales por concepto
+        self.totales_banco = self.df_bancos.groupby('concepto')['importe'].sum().sort_index()
+
+    """
     def get_col(self, df, key):
         equivalentes = [e.lower().strip() for e in self.columnas_equivalentes[key]]
         columnas_actuales = [col.lower().strip() for col in df.columns]
@@ -103,14 +210,12 @@ class Conciliador:
         # Obtener nombres reales de columnas
         col_comp = self.get_col(self.df_bancos, 'comprobante')
         col_imp = self.get_col(self.df_bancos, 'importe')
-        col_imp_mayor = self.get_col(self.df_bancos, 'importe')
+
+        col_cuit_mayor = self.get_col(self.df_mayor, 'cuit')
         col_conc_banco = self.get_col(self.df_bancos, 'concepto')
         col_conc_mayor = self.get_col(self.df_mayor, 'concepto')
-        col_detalle_banco = self.get_col(self.df_bancos, 'concepto')
+        col_detalle_banco = self.get_col(self.df_bancos, 'detalle')
         col_detalle_mayor = self.get_col(self.df_mayor, 'detalle')
-        col_cuit_mayor = self.get_col(self.df_mayor, 'cuit')
-        col_comp_banco = self.get_col(self.df_bancos, 'comprobante')
-        col_comp_mayor = self.get_col(self.df_mayor, 'comprobante')
 
         # Normalizar comprobante
         self.df_bancos['c4'] = self.df_bancos[col_comp].astype(str).str.zfill(4).str[-4:]
@@ -120,50 +225,28 @@ class Conciliador:
         self.df_bancos['importe_r'] = self.df_bancos[col_imp].round(2)
         self.df_mayor['importe_r'] = self.df_mayor[col_imp].round(2)
 
-
-        if not all([col_comp_banco, col_comp_mayor, col_imp, col_imp_mayor, col_detalle_banco, col_detalle_mayor]):
-            missing = [
-                "comprobante en banco" if not col_comp_banco else "",
-                "comprobante en mayor" if not col_comp_mayor else "",
-                "importe en banco" if not col_imp else "",
-                "importe en mayor" if not col_imp else "",
-                #"detalle en banco" if not col_detalle_banco else "",
-                #"detalle en mayor" if not col_detalle_mayor else "",
-            ]
-            raise ValueError(f"Faltan columnas esenciales para la conciliación: {', '.join(filter(None, missing))}")
-            self.df_bancos['comprobante_norm'] = self.df_bancos[col_comp_banco].apply(self.normalizar_comprobante)
-            self.df_mayor['comprobante_norm'] = self.df_mayor[col_comp_mayor].apply(self.normalizar_comprobante)
-            self.df_bancos['c4'] = self.df_bancos[col_comp_banco].astype(str).str.zfill(12).str[-4:]
-            self.df_mayor['c4'] = self.df_mayor[col_comp_mayor].astype(str).str.zfill(12).str[-4:]
-            self.df_bancos['c8'] = self.df_bancos[col_comp_banco].astype(str).str.zfill(12).str[-8:]
-            self.df_mayor['c8'] = self.df_mayor[col_comp_mayor].astype(str).str.zfill(12).str[-8:]
-            self.df_mayor['cuit'] = self.df_mayor[col_cuit_mayor].astype(str).str.zfill(12).str[-11:]
-            self.df_bancos['importe_r'] = pd.to_numeric(self.df_bancos[col_imp_banco], errors='coerce').fillna(0).round(
-                2)
-            self.df_mayor['importe_r'] = pd.to_numeric(self.df_mayor[col_imp_mayor], errors='coerce').fillna(0).round(2)
-            self.df_bancos['importe_abs'] = self.df_bancos['importe_r']
-            self.df_mayor['importe_abs'] = self.df_mayor['importe_r']
-
-            self.df_bancos['cuit'] = self.df_bancos[col_detalle_banco].apply(self.extraer_cuit).apply(
-                self.normalizar_cuit)
-            if col_cuit_mayor:
-                self.df_mayor['cuit'] = self.df_mayor[col_cuit_mayor].apply(self.normalizar_cuit)
-            else:
-                self.df_mayor['cuit'] = self.df_mayor[col_detalle_mayor].apply(self.extraer_cuit).apply(
-                    self.normalizar_cuit)
-
-            logging.info(f"Inicial: bancos={len(self.df_bancos)}, mayor={len(self.df_mayor)}")
+        # Extraer CUIT del detalle si está presente
+        self.df_bancos['cuit'] = self.df_bancos[col_detalle_banco].apply(
+            lambda x: re.search(r'\b\d{2}-\d{8}-\d\b', str(x)).group(0) if re.search(r'\b\d{2}-\d{8}-\d\b',
+                                                                                     str(x)) else None
+        )
+        self.df_mayor['cuit'] = self.df_mayor[col_cuit_mayor]
 
         # Merge flexible
-
-
         self.resultado_concilia = pd.merge(
             self.df_mayor, self.df_bancos,
             on=['c4', 'importe_r'], how='inner', indicator=True,
             suffixes=('_mayor', '_banco')
         )
 
-
+        # Asegurar que el CUIT esté presente en el resultado
+        if 'cuit_mayor' in self.resultado_concilia.columns:
+            self.resultado_concilia['cuit'] = self.resultado_concilia['cuit_mayor']
+        """
+        elif 'cuit_banco' in self.resultado_concilia.columns:
+            self.resultado_concilia['cuit'] = self.resultado_concilia['cuit_banco']
+        """
+        logging.info("--> Cuit mayor " + str(self.df_mayor['cuit']))
         # Aplicación para concepto y detalle
         self.asignar_columna_equivalente(
             self.resultado_concilia, 'concepto',
@@ -174,6 +257,7 @@ class Conciliador:
             self.resultado_concilia, 'detalle',
             self.columnas_equivalentes['detalle'], ['banco', 'mayor']
         )
+
 
 
 
@@ -188,8 +272,22 @@ class Conciliador:
             ~self.df_mayor.set_index(['c4', 'importe_r']).index.isin(
                 self.resultado_concilia.set_index(['c4', 'importe_r']).index)
         ].copy()
+
         if 'importe' not in self.unicos_empresa.columns:
             self.unicos_empresa['importe'] = self.unicos_empresa['importe_r']
+
+         # Asegurarse de que la columna 'cuit' esté presente
+        if 'cuit' in self.df_mayor.columns:
+                self.unicos_empresa['cuit'] = self.df_mayor.loc[self.unicos_empresa.index, 'cuit']
+
+        logging.info("Columnas en unicos_empresa:")
+        logging.info(self.unicos_empresa.columns)
+
+
+
+
+
+
 
         # Registros únicos en banco
         self.unicos_banco = self.df_bancos[
@@ -199,21 +297,10 @@ class Conciliador:
         if 'importe' not in self.unicos_banco.columns:
             self.unicos_banco['importe'] = self.unicos_banco['importe_r']
 
-        # Normalizar columna plan de cuentas para eliminar decimales innecesarios antes de guardar o insertar
-        if 'plan_cuentas' in self.resultado_concilia.columns:
-            self.resultado_concilia['plan_cuentas'] = self.resultado_concilia['plan_cuentas'].apply(lambda x: str(int(x)) if pd.notnull(x) and isinstance(x, float) and x.is_integer() else str(x))
+
 
         # Totales por concepto
         self.totales_banco = self.df_bancos.groupby(col_conc_banco)[col_imp].sum().sort_index()
-        # Conciliación adicional por CUIT e importe
-        # Conciliación por CUIT e importe
-        resultado_cuit = self.conciliar_por_cuit_importe(self.unicos_empresa, self.unicos_banco)
-        if not resultado_cuit.empty:
-            self.resultado_concilia = pd.concat([self.resultado_concilia, resultado_cuit], ignore_index=True)
-        print (self.resultado_concilia)
-        # fin merge flexible antes de nuevo merge flexible
-
-
 
 
 
@@ -240,6 +327,38 @@ class Conciliador:
         #df['concepto'] = df['concepto'].astype(str)
 
         return df
+
+    def detectar_motor(self, stream: BytesIO):
+        try:
+            # Verificar si el flujo contiene datos
+            if stream.getbuffer().nbytes == 0:
+                raise ValueError("El flujo está vacío. Asegúrate de que contiene datos válidos.")
+
+            # Leer los primeros bytes para determinar el formato
+            stream.seek(0)  # Asegurarse de que el puntero esté al inicio
+            header = stream.read(8)
+            stream.seek(0)  # Reiniciar el puntero del stream después de leer
+
+            # Validar el encabezado para determinar el motor
+            if header[:2] == b'\xD0\xCF':  # Archivos .xls (formato antiguo)
+                return 'xlrd'
+            elif header.startswith(b'PK'):  # Archivos .xlsx o .xlsm
+                return 'openpyxl'
+            elif header:  # Si hay un encabezado pero no coincide con los formatos conocidos
+                logger.warning(f"Encabezado inesperado: {header}. Intentando con 'xlrd'.")
+                return 'xlrd'
+            else:
+                raise ValueError("Formato de archivo no soportado. Especifique un motor válido.")
+        except Exception as e:
+            raise ValueError(f"Error al detectar el motor: {e}")
+
+
+
+
+
+
+
+
 
     """
     def normalizar_datos2(df, origen):
@@ -404,7 +523,7 @@ class Conciliador:
         db_connection = conn.get_connection().conn
         cursor = db_connection.cursor()
         try:
-            # Borro la tabla antes de volar la conciliacion
+            # Borro la tabla antes de volvar la conciliacion
             delete_sql = "DELETE FROM SisMasterEntidad WHERE idEmpresa = %s AND procesado_sn = 'N' AND estado = 1 AND idUsuario = %s"
             cursor.execute(delete_sql, (self.id_empresa,self.id_usuario))
             db_connection.commit()
@@ -493,7 +612,7 @@ class Conciliador:
         db_connection = conn.get_connection().conn
         cursor = db_connection.cursor()
         try:
-            # Borro la tabla antes de volar la conciliacion
+            # Borro la tabla antes de volvar la conciliacion
             delete_sql = "DELETE FROM SisMasterEmpresa WHERE idEmpresa = %s AND procesado_sn = 'N' AND estado = 1"
             cursor.execute(delete_sql, (self.id_empresa,))
             db_connection.commit()
@@ -539,7 +658,7 @@ class Conciliador:
                 # Confirmar la transacción
                 db_connection.commit()
 
-                print(f"Se insertaron {cursor.rowcount} registros correctamente.")
+                print(f"Se insertaron en unicos empresa {cursor.rowcount} registros correctamente.")
                 #self.guardarUnicosEntidad(self.unicos_banco, self.cuenta_concilia)
             except Exception as e:
                 print(f"Error al insertar en la base de datos: {e}")
@@ -579,7 +698,7 @@ class Conciliador:
         db_connection = conn.get_connection().conn
         cursor = db_connection.cursor()
         try:
-            # Borro la tabla antes de volar la conciliacion
+            # Borro la tabla antes de volvar la conciliacion
             delete_sql = "DELETE FROM SisMasterTotales WHERE idEmpresa = %s AND procesado_sn = 'N' AND estado = 1"
             cursor.execute(delete_sql, (self.id_empresa,))
             db_connection.commit()
@@ -646,7 +765,7 @@ class Conciliador:
         try:
 
             try:
-                # Borro las tablas, FactConcilia y SisMaster antes de volar la conciliacion
+                # Borro las tablas, FactConcilia y SisMaster antes de volvar la conciliacion
                 delete_sql_cab = "DELETE FROM ConciliaCab WHERE idEmpresa = %s AND procesado_sn = 'N' AND estado = 1 and idUsuario = %s and idConcilia = %s"
                 cursor.execute(delete_sql_cab, (self.id_empresa, self.id_usuario, self.id_tipo_concilia))
                 db_connection.commit()
@@ -736,7 +855,7 @@ class Conciliador:
                 "codigo": 400,
                 "control": "ERROR",
                 "mensaje": "GuardarResultadosConciliacion: Error al insertar en la base de datos "+str(e),
-                "detalle" : str(valores)
+
             }
             return result
 
@@ -753,6 +872,8 @@ class Conciliador:
 
         try:
             fech = parse(str(fecha), dayfirst=True)
+
+
 
             return fech.strftime('%Y-%m-%d')
         except Exception as e:
@@ -824,8 +945,23 @@ class Conciliador:
     def ejecutar(self):
         """Ejecuta todo el flujo de conciliación y devuelve el resultado."""
         try:
-            self.cargar_datos()
+            self.cargar_datos_2()
             self.procesar_datos()
+
+            # Paso 2: Filtrar los registros no conciliados
+            registros_filtrados = self.filtrar_por_cuit_y_importe(
+                self.unicos_banco, self.unicos_empresa, self.columnas_equivalentes
+            )
+
+            # Paso 3: Conciliar los registros filtrados
+            if not registros_filtrados.empty:
+                self.resultado_concilia = pd.concat([self.resultado_concilia, registros_filtrados])
+
+
+
+
+
+
             return self.guardaResultadosConciliacion(self.resultado_concilia, self.cuenta_concilia)
         except Exception as e:
             # Retornar error en caso de excepción
@@ -838,63 +974,3 @@ class Conciliador:
 
 
 
-    def limpiar_columnas_resultado(self, df):
-        # Elimina columnas innecesarias y asegura el formato correcto
-        columnas_validas = [
-            'cuit', 'importe_r', 'comprobante_norm', 'c4', 'c8', 'concepto', 'detalle',
-            # Agrega aquí todas las columnas que espera el INSERT final
-        ]
-        # Elimina columnas Unnamed y otras no deseadas
-        df = df.loc[:, [col for col in df.columns if col in columnas_validas]]
-        if 'UNNAMED: 0' in df.columns:
-            df = df.drop('UNNAMED: 0', axis=1)
-        return df
-
-
-    def extraer_cuit(self, texto):
-        """Extrae el primer CUIT válido de un texto usando regex."""
-        import re
-        if not isinstance(texto, str):
-            return ''
-        match = re.search(r'\b(\d{11})\b', texto)
-        return match.group(1) if match else ''
-
-    def normalizar_cuit(self, cuit):
-        """Normaliza el CUIT a string de 11 dígitos, o vacío si no es válido."""
-        if pd.isnull(cuit):
-            return ''
-        cuit_str = str(cuit).strip()
-        return cuit_str if len(cuit_str) == 11 and cuit_str.isdigit() else ''
-
-    def conciliar_por_cuit_importe(self, mayor_rest, banco_rest):
-        """
-        Realiza la conciliación por CUIT e importe sobre los no conciliados.
-        """
-        # Extraer y normalizar CUIT del banco (usando detalle/concepto)
-        col_detalle_banco = self.get_col(banco_rest, 'concepto')
-        if col_detalle_banco is None or banco_rest[col_detalle_banco].isnull().all():
-            col_detalle_banco = self.get_col(banco_rest, 'concepto')
-        banco_rest['cuit'] = banco_rest[col_detalle_banco].apply(self.extraer_cuit).apply(self.normalizar_cuit)
-        mayor_rest['cuit'] = mayor_rest['cuit'].apply(self.normalizar_cuit)
-        # Filtrar solo los que tienen CUIT e importe
-        mayor_con_cuit = mayor_rest.dropna(subset=['cuit', 'importe_r'])
-        banco_con_cuit = banco_rest.dropna(subset=['cuit', 'importe_r'])
-        mayor_con_cuit['cuit'] = mayor_con_cuit['cuit'].astype(str)
-        banco_con_cuit['cuit'] = banco_con_cuit['cuit'].astype(str)
-        resultado_cuit = pd.DataFrame()
-        if not mayor_con_cuit.empty and not banco_con_cuit.empty:
-            try:
-                resultado_cuit = pd.merge(
-                    mayor_con_cuit,
-                    banco_con_cuit,
-                    on=['cuit', 'importe_r'],
-                    how='inner',
-                    indicator=True,
-                    suffixes=('_mayor', '_banco')
-                )
-                # Asignar correctamente las columnas del banco al resultado
-                resultado_cuit['saldo'] = resultado_cuit['saldo_banco'] if 'saldo_banco' in resultado_cuit.columns else resultado_cuit.get('saldo', 0)
-                resultado_cuit['importe'] = resultado_cuit['importe_banco'] if 'importe_banco' in resultado_cuit.columns else resultado_cuit.get('importe', 0)
-            except Exception as e:
-                logging.warning(f"Conciliación por CUIT falló: {e}")
-        return resultado_cuit
