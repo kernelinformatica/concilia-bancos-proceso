@@ -57,14 +57,7 @@ class Conciliador:
 
 
 
-        """self.columnas_equivalentes = {
-            "importe": ["importe", "m_importe", "saldo"],
-            "comprobante": ["comprobante",  "nro_comp",  "nro", "numero"],
-            "detalle": ["detalle", "m_detalle", "descripcion", "m_descripcion", "m_glosa", "detalles", "descripcion"],
-            "cuit": ["cuit", "cuit_proveedor", "cuit_cliente", "cuit_beneficiario"],
-            "concepto": ["concepto", "m_concepto", "concepto_codigo", "concepto_descripcion", "concepto_banco", "concepto_bancos", "bancos_concepto", "conce", "concept"],
-            "fecha": ["fecha", "m_ingreso", "fecha_operacion"]
-        }"""
+
 
 
         # Cargar bancos y aplicar renombrado de columnas
@@ -102,6 +95,7 @@ class Conciliador:
 
         # Obtener nombres reales de columnas
         col_comp = self.get_col(self.df_bancos, 'comprobante')
+
         col_imp = self.get_col(self.df_bancos, 'importe')
         col_imp_mayor = self.get_col(self.df_bancos, 'importe')
         col_conc_banco = self.get_col(self.df_bancos, 'concepto')
@@ -689,6 +683,7 @@ class Conciliador:
                         row['concepto_mayor'] if 'concepto_mayor' in row else row['concepto'],
                         row['detalle_mayor'],
                         row['nro_comp'],
+                        row['c4'] if ('c4' in row and pd.notnull(row['c4'])) else row.get('comprobante_banco', None), # nro_comp_asoc
                         0,  # Debito
                         0,  # Credito
                         0,
@@ -696,20 +691,20 @@ class Conciliador:
                         row['importe'],
                         "N",
                         self.id_usuario,  # idUsuario
-                        1  # estado
+                        1,  # estado
+                        # CUIT: si existe cuit_mayor y no es nulo/NaN, usarlo; si no, usar cuit
+                        row['cuit_mayor'] if ('cuit_mayor' in row and pd.notnull(row['cuit_mayor'])) else row.get('cuit', None)
                     )
-
                     for index, row in resultado_concilia.iterrows()
-
 
                 ]
                 logging.info(valores)
                 # Nueva estructura de inserción sin placeholders dinámicos
                 sql = """
                       INSERT INTO SisMaster (
-                          idConcilia, idEmpresa, m_asiento, m_asiento_concilia, m_pase, m_ingreso, plan_cuentas, concepto, detalle, nro_comp, debito, 
-                          credito, codigo, saldo,  importe, procesado_sn, idUsuario, estado
-                      ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,  %s, %s, %s, %s)
+                          idConcilia, idEmpresa, m_asiento, m_asiento_concilia, m_pase, m_ingreso, plan_cuentas, concepto, detalle, nro_comp, nro_comp_asoc,debito, 
+                          credito, codigo, saldo,  importe, procesado_sn, idUsuario, estado, cuit
+                      ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,  %s, %s, %s, %s, %s,%s)
                       """
 
                 # Ejecutar la inserción de múltiples filas
